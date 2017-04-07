@@ -40,6 +40,7 @@ from lib import brocade
 from lib import cisco
 from lib import ciscoasa
 from lib import ciscoxr
+from lib import clavister
 from lib import gce
 from lib import ipset
 from lib import iptables
@@ -189,6 +190,7 @@ def RenderFile(input_file, output_directory, definitions,
   win_afw = False
   xacl = False
   paloalto = False
+  cacl = False
 
   try:
     conf = open(input_file).read()
@@ -251,6 +253,8 @@ def RenderFile(input_file, output_directory, definitions,
     gcefw = copy.deepcopy(pol)
   if 'paloalto' in platforms:
     paloalto = copy.deepcopy(pol)
+  if 'clavister' in platforms:
+    cacl = copy.deepcopy(pol)
 
   if not output_directory.endswith('/'):
     output_directory += '/'
@@ -334,6 +338,10 @@ def RenderFile(input_file, output_directory, definitions,
                 input_file, write_files)
     if paloalto:
       acl_obj = paloaltofw.PaloAltoFW(paloalto, exp_info)
+      RenderACL(str(acl_obj), acl_obj.SUFFIX, output_directory,
+                input_file, write_files)
+    if cacl:
+      acl_obj = clavister.ClavisterFW(cacl, exp_info)
       RenderACL(str(acl_obj), acl_obj.SUFFIX, output_directory,
                 input_file, write_files)
   # TODO(robankeny) add additional errors.
