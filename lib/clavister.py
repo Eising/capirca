@@ -187,6 +187,8 @@ class Rule(object):
     self.options["destination"] = []
     self.options["service"] = []
     self.options["action"] = "allow"
+    self.options["source_interface"] = "any"
+    self.options["destination_interface"] = "any"
 
     # SOURCE-ADDRESS
     if term.source_address:
@@ -196,8 +198,8 @@ class Rule(object):
       saddr_check = sorted(saddr_check)
       for addr in saddr_check:
         self.options["source"].append(str(addr))
-    else:
-      self.options["source"].append("any")
+#    else:
+#      self.options["source"].append("any")
 
     # DESTINATION-ADDRESS
     if term.destination_address:
@@ -207,8 +209,15 @@ class Rule(object):
       daddr_check = sorted(daddr_check)
       for addr in daddr_check:
         self.options["destination"].append(str(addr))
-    else:
-      self.options["destination"].append("any")
+#    else:
+#      self.options["destination"].append("all-nets")
+
+    # SOURCE-INTERFACE
+    if term.source_interface:
+      self.options["source_interface"] = term.source_interface
+
+    if term.destination_interface:
+      self.options["destination_interface"] = term.destination_interface
 
     if term.action:
       self.options["action"] = term.action[0]
@@ -246,7 +255,7 @@ class Rule(object):
               "name"])
         elif p.isdigit():
           # This is raw ip proto
-          ports = tuple([int(p)])
+          ports = tuple([str(p)])
           if (ports, p) in Service.service_map:
             self.options["service"].append(Service.service_map[(ports, p)][
               "name"])
@@ -255,12 +264,6 @@ class Rule(object):
             unused_new_service = Service(ports, term.name, p)
             self.options["service"].append(Service.service_map[(ports, p)][
               "name"])
-
-
-
-      ports = () # ports should reflect the IPProto or ICMP codes
-
-      # P
 
 
     rule_name = term.name
@@ -297,6 +300,8 @@ class ClavisterFW(aclgenerator.ACLGenerator):
         "comment",
         "destination_address",
         "destination_port",
+        "source_interface",
+        "destination_interface",
         "expiration",
         "icmp_type",
         "logging",
@@ -472,10 +477,17 @@ class ClavisterFW(aclgenerator.ACLGenerator):
     """Render the output of the ClavisterFirewall policy into config."""
 
     # ADDRESS
+    pre_address = []
+    post_address = []
     address_entries = []
 
     address_book_names_dict = {}
     address_book_groups_dict = {}
+
+    pre_address.append("delete AddressFolder " + self.folder +
+                       " -force")
+    pre_address.append("add AddressFolder " + self.folder)
+    post_address.append("cc ..")
 
     # building individual addresses dictionary
     groups = sorted(self.addressbook)
@@ -501,20 +513,28 @@ class ClavisterFW(aclgenerator.ACLGenerator):
 
     for name in address_book_keys:
       if type(address_book_names_dict[name]) is nacaddr.IPv4:
-        address_entries.append("add IP4Address " + name +
-                               " Address=" + str(address_book_names_dict[name]))
+        if address_book_names_dict[name].numhosts == 1:
+          address = address_book_names_dict[name].ip
+        else:
+          address = address_book_names_dict[name]
+        address_entries.append(self.INDENT + "add IP4Address " + name +
+                               " Address=" + str(address))
       elif type(address_book_names_dict[name]) is nacaddr.IPv6:
-        address_entries.append("add IP6Address " + name +
-                               " Address=" + str(address_book_names_dict[name]))
+        if address_book_names_dict[name].numhosts == 1:
+          address = address_book_names_dict[name].ip
+        else:
+          address = address_book_names_dict[name]
+        address_entries.append(self.INDENT + "add IP6Address " + name +
+                               " Address=" + str(address))
 
       address_group_entries = []
 
     for group, address_list in address_book_groups_dict.items():
       if type(address_book_names_dict[address_list[0]]) is nacaddr.IPv4:
-        address_group_entries.append("add IP4Group " + group +
+        address_group_entries.append(self.INDENT + "add IP4Group " + group +
                                      " Members=" + ",".join(address_list))
       elif type(address_book_names_dict[address_list[0]]) is nacaddr.IPv6:
-        address_group_entries.append("add IP6Group " + group +
+        address_group_entries.append(self.INDENT + "add IP6Group " + group +
                                      " Members=" + ",".join(address_list))
 
 
@@ -522,9 +542,8 @@ class ClavisterFW(aclgenerator.ACLGenerator):
     service = []
 
     for k, v in Service.service_map.items():
-      tup = str(k[0])[1:-1]
-      if tup and tup[-1] == ",":
-        tup = tup[:-1]
+#      tup = str(k[0])[1:-1]
+      tup = ",".join(k[0])
       if k[1] == "tcp" or k[1] == "udp":
         service.append("add " + v["type"] + " " + v["name"] +
                        " DestinationPorts=" + tup.replace("'", "") +
@@ -554,84 +573,93 @@ class ClavisterFW(aclgenerator.ACLGenerator):
 
 
     for name, options in Rule.rules.items():
+      ruleset = []
+
       if options["source"]:
-        source = options["source"][0]
+        for source in options["source"]:
+          source_isv4 = False
+          source_isv6 = False
+          skey_v4 = source + "_IP4"
+          skey_v6 = source + "_IP6"
+
+          if skey_v4 in address_book_groups_dict.keys():
+            source_isv4 = True
+          if skey_v6 in address_book_groups_dict.keys():
+            source_isv6 = True
+
+          if options["destination"]:
+            for destination in options["destination"]:
+              destination_isv4 = False
+              destination_isv6 = False
+              dkey_v4 = destination + "_IP4"
+              dkey_v6 = destination + "_IP6"
+
+              if dkey_v4 in address_book_groups_dict.keys():
+                destination_isv4 = True
+              if dkey_v6 in address_book_groups_dict.keys():
+                destination_isv6 = True
+              if source_isv4 and destination_isv4:
+                ruleset.append((self.folder + "/" + skey_v4, self.folder + "/" + dkey_v4))
+              if source_isv6 and destination_isv6:
+                ruleset.append((self.folder + "/" + skey_v6, self.folder + "/" + dkey_v6))
+          else:
+            # There is no destination
+            if source_isv4:
+              anyv4 = "all-nets"
+              ruleset.append((self.folder + "/" + skey_v4, anyv4))
+            if source_isv6:
+              anyv6 = "all-nets6"
+              ruleset.append((self.folder + "/" + skey_v6, anyv6))
       else:
-        source = "all-nets"
+        # There is no source
+        if options["destinations"]:
+          # There is a destination set
+          for destination in options["destination"]:
+            dkey_v4 = destination + "_IP4"
+            dkey_v6 = destination + "_IP6"
 
-      if options["destination"]:
-        destination = options["destination"][0]
-      else:
-        destination = "all-nets"
+            if dkey_v4 in address_book_groups_dict.keys():
+              ruleset.append(("all-nets", self.folder + "/" + dkey_v4))
+
+            if dkey_v6 in address_book_groups_dict.keys():
+              ruleset.append(("all-nets6", self.folder + "/" + dkey_v6))
+        else:
+          # no source, no destination
+          ruleset.append(("all-nets", "all-nets"))
+          ruleset.append(("all-nets6", "all-nets6"))
 
 
-      keys = address_book_groups_dict.keys()
-      rule4 = False
-      rule6 = False
-
-      for k in keys:
-        if k.startswith(destination) and k.endswith('IP4'):
-          rule4 = True
-        if k.startswith(destination) and k.endswith('IP6'):
-          rule6 = True
-
-      sourcev4 = source + "_IP4"
-      destinationv4 = destination + "_IP4"
-      sourcev6 = source + "_IP6"
-      destinationv6 = destination + "_IP6"
-      if rule4 and (sourcev4 in keys and destinationv4 in keys):
-        source = sourcev4
-        destination = destinationv4
-        if not (source in keys and destination in keys):
-          # Source and destinations aren't same address family
-          continue
+      for r in enumerate(ruleset):
+        source = r[1][0]
+        destination = r[1][1]
+        num = str(r[0])
         if len(options["service"]) == 1:
           action = Term.ACTIONS.get(str(options["action"]))
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + # ensure 31 max for name
-                      " SourceInterface=any DestinationInterface=any " +
-                      "SourceNetwork=" + source + " DestinationNetwork=" +
+          rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num +  # ensure 31 max for name
+                      " SourceInterface=" + options["source_interface"] +
+                      " DestinationInterface=" + options["destination_interface"] +
+                      " SourceNetwork=" + source + " DestinationNetwork=" +
                       destination + " Service=" + options["service"][0] +
                       " Action=" + action)
 
         elif not options["service"]:
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + # ensure 31 max for name
+          rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num + # ensure 31 max for name
                       " SourceInterface=any DestinationInterface=any " +
                       "SourceNetwork=" + source + " DestinationNetwork=" +
                       destination + " Service=all-services" +
                       " Action=" + action)
         elif len(options["service"]) > 1:
           for s in enumerate(options["services"]):
-            rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + s[0] +# ensure 31 max for name
-                        " SourceInterface=any DestinationInterface=any " +
-                        "SourceNetwork=" + source + " DestinationNetwork=" +
-                        destination + " Service=" +
-                        " Action=" + action)
-
-      if rule6 and (sourcev6 in keys and destinationv6 in keys):
-        source = sourcev6
-        destination = destinationv6
-        if len(options["service"]) == 1:
-          action = Term.ACTIONS.get(str(options["action"]))
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + # ensure 31 max for name
-                      " SourceInterface=any DestinationInterface=any " +
-                      "SourceNetwork=" + source + " DestinationNetwork=" +
-                      destination + " Service=" + options["service"][0] +
-                      " Action=" + action)
-
-        elif not options["service"]:
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + # ensure 31 max for name
-                      " SourceInterface=any DestinationInterface=any " +
-                      "SourceNetwork=" + source + " DestinationNetwork=" +
-                      destination + " Service=all-services" +
-                      " Action=" + action)
-        elif len(options["service"]) > 1:
-          for s in enumerate(options["services"]):
-            rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + s[0] +# ensure 31 max for name
+            rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num + "_" + s[0] +# ensure 31 max for name
                         " SourceInterface=any DestinationInterface=any " +
                         "SourceNetwork=" + source + " DestinationNetwork=" +
                         destination + " Service=" +
                         " Action=" + action)
 
 
-    return ("\n".join(address_entries) + "\n\n" + "\n".join(address_group_entries) +
+    rules.append("cc ..")
+
+
+    return ("\n".join(pre_address) + "\n" + "\n".join(address_entries) + "\n" +
+            "\n".join(address_group_entries) + "\n" + "\n".join(post_address) +
             "\n\n" + "\n".join(service) + "\n\n" + "\n".join(rules))
