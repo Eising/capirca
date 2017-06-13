@@ -186,6 +186,7 @@ class Rule(object):
     self.options["source"] = []
     self.options["destination"] = []
     self.options["service"] = []
+    self.options["options"] = []
     self.options["action"] = "allow"
     self.options["source_interface"] = "any"
     self.options["destination_interface"] = "any"
@@ -265,6 +266,9 @@ class Rule(object):
             self.options["service"].append(Service.service_map[(ports, p)][
               "name"])
 
+    # Options - clavister options to pass directly to rules
+#    print(term.options)
+
 
     rule_name = term.name
     if rule_name in self.rules:
@@ -309,6 +313,7 @@ class ClavisterFW(aclgenerator.ACLGenerator):
         "protocol",
         "source_address",
         "source_port",
+        "options",
         "translated",
     }
 
@@ -612,7 +617,7 @@ class ClavisterFW(aclgenerator.ACLGenerator):
               ruleset.append((self.folder + "/" + skey_v6, anyv6))
       else:
         # There is no source
-        if options["destinations"]:
+        if options["destination"]:
           # There is a destination set
           for destination in options["destination"]:
             dkey_v4 = destination + "_IP4"
@@ -632,10 +637,13 @@ class ClavisterFW(aclgenerator.ACLGenerator):
       for r in enumerate(ruleset):
         source = r[1][0]
         destination = r[1][1]
-        num = str(r[0])
+        if len(ruleset) > 1:
+          num = "_" + str(r[0])
+        else:
+          num = ""
+        action = Term.ACTIONS.get(str(options["action"]))
         if len(options["service"]) == 1:
-          action = Term.ACTIONS.get(str(options["action"]))
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num +  # ensure 31 max for name
+          rules.append(self.INDENT + "add IPPolicy Name=" + name +  num +  # ensure 31 max for name
                       " SourceInterface=" + options["source_interface"] +
                       " DestinationInterface=" + options["destination_interface"] +
                       " SourceNetwork=" + source + " DestinationNetwork=" +
@@ -643,14 +651,14 @@ class ClavisterFW(aclgenerator.ACLGenerator):
                       " Action=" + action)
 
         elif not options["service"]:
-          rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num + # ensure 31 max for name
+          rules.append(self.INDENT + "add IPPolicy Name=" + name + num + # ensure 31 max for name
                       " SourceInterface=any DestinationInterface=any " +
                       "SourceNetwork=" + source + " DestinationNetwork=" +
                       destination + " Service=all-services" +
                       " Action=" + action)
         elif len(options["service"]) > 1:
           for s in enumerate(options["services"]):
-            rules.append(self.INDENT + "add IPPolicy Name=" + name + "_" + num + "_" + s[0] +# ensure 31 max for name
+            rules.append(self.INDENT + "add IPPolicy Name=" + name + num + "_" + s[0] +# ensure 31 max for name
                         " SourceInterface=any DestinationInterface=any " +
                         "SourceNetwork=" + source + " DestinationNetwork=" +
                         destination + " Service=" +
