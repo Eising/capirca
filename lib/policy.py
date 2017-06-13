@@ -1406,6 +1406,8 @@ class VarType(object):
   FORWARDING_CLASS_EXCEPT = 52
   TRAFFIC_CLASS_COUNT = 53
   PAN_APPLICATION = 54
+  COS_OPTION = 55
+  COS_SERVICE = 56
 
   def __init__(self, var_type, value):
     self.var_type = var_type
@@ -1569,6 +1571,8 @@ tokens = (
     'ADDR',
     'ADDREXCLUDE',
     'COMMENT',
+    'COS_OPTION',
+    'COS_SERVICE',
     'COUNTER',
     'DADDR',
     'DADDREXCLUDE',
@@ -1640,6 +1644,8 @@ reserved = {
     'address': 'ADDR',
     'address-exclude': 'ADDREXCLUDE',
     'comment': 'COMMENT',
+    'cos-option': 'COS_OPTION',
+    'cos-service': 'COS_SERVICE',
     'counter': 'COUNTER',
     'destination-address': 'DADDR',
     'destination-exclude': 'DADDREXCLUDE',
